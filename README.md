@@ -25,8 +25,8 @@
 ### Клонирование репозитория
 
 ```bash
-git clone https://github.com/your-username/weather-journal.git
-cd weather-journal
+git clone https://github.com/MEO-KB-lessons/Weather_App-Python.git
+cd Weather_App-Python
 ```
 
 ## Создание виртуального окружения (рекомендуется)
