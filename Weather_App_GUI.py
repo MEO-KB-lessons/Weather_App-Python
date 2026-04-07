@@ -119,7 +119,7 @@ class WeatherJournalGUI:
         # вкладка "Сегодня"
         self.today_frame = tk.Frame(self.notebook, bg=COLORS['bg'])
         self.notebook.add(self.today_frame, text='Сегодня')
-        #self.setup_today_tab()
+        self.setup_today_tab()
 
         # вкладка "Другая дата"
         self.date_frame = tk.Frame(self.notebook, bg=COLORS['bg'])
@@ -136,6 +136,116 @@ class WeatherJournalGUI:
                                    bg=COLORS['header_bg'], fg=COLORS['header_fg'],
                                    anchor=tk.W, padx=10, font=FONT_STATUS)
         self.status_bar.pack(side=tk.BOTTOM, fill=tk.X)
+
+    def setup_today_tab(self):
+        """ настройка вкладки с погодой на сегодня """
+        # кнопка обновить
+#        refresh_btn = tk.Button(self.today_frame, text="Обновить",
+                                #command=self.refresh_today_weather,
+#                                bg=COLORS['button_bg'], fg='white', font=FONT_BUTTON,
+                                #cursor='hand2', relief=tk.FLAT, padx=20, pady=8)
+        #refresh_btn.pack(pady=10)
+        #refresh_btn.bind('<Enter>', lambda e:
+        #                 refresh_btn.configure(bg=COLORS['button_hover']))
+        #refresh_btn.bind('<Leave>', lambda e:
+        #                 refresh_btn.configure(bg=COLORS['button_bg']))
+        
+        # карточка погоды
+        self.weather_card = tk.Frame(self.today_frame, bg=COLORS['card_gradient_start'], relief=tk.RAISED, bd=2)
+        self.weather_card.pack(fill=tk.BOTH, expand=True, padx=20, pady=10)
+        
+        # контейнер для виджетов
+        self.weather_container = tk.Frame(self.weather_card, bg=COLORS['card_gradient_start'])
+        self.weather_container.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
+        
+        # Заголовок
+        self.today_date_label = tk.Label(self.weather_container, text="Дата: --",
+                                         font=FONT_HEADER, bg=COLORS['card_gradient_start'],
+                                         fg='white')
+        self.today_date_label.pack(pady=15)
+        
+        # Температура
+        self.temp_label = tk.Label(self.weather_container, text="--°С", font=FONT_TITLE,
+                                   bg=COLORS['card_gradient_start'], fg='white')
+        self.temp_label.pack(pady=10)
+        
+        # Погодные условия
+        self.condition_label = tk.Label(self.weather_container, text="--",
+                                        font=FONT_SUBHEADER, bg=COLORS['card_gradient_start'], fg='white')
+        self.condition_label.pack(pady=5)
+        
+        #Детали погоды
+        details_frame = tk.Frame(self.weather_container, bg=COLORS['card_gradient_start'])
+        details_frame.pack(pady=20)
+        
+        self.humidity_label = tk.Label(details_frame, text="Влажность: --", font=FONT_DETAILS,
+                                       bg=COLORS['card_gradient_start'], fg='white')
+        self.humidity_label.grid(row=0, column=0, padx=20, pady=5)
+        
+        self.pressure_label = tk.Label(details_frame, text="Давление: --", font=FONT_DETAILS,
+                                       bg=COLORS['card_gradient_start'], fg='white')
+        self.pressure_label.grid(row=0, column=1, padx=20, pady=5)
+        
+        self.wind_label = tk.Label(details_frame, text="Ветер: --", font=FONT_DETAILS,
+                                   bg=COLORS['card_gradient_start'], fg='white')
+        self.wind_label.grid(row=1, column=0, padx=20, pady=5)
+
+        self.precip_label = tk.Label(details_frame, text="Осадки: --", font=FONT_DETAILS,
+                                     bg=COLORS['card_gradient_start'], fg='white')
+        self.precip_label.grid(row=1, column=1, padx=20, pady=5)
+
+    def setup_date_tab(self):
+        """ Настройка вкладки выбора даты """
+        # Фрейм для выбора даты
+        select_frame = tk.Frame(self.date_frame, bg=COLORS['bg'])
+        select_frame.pack(fill=tk.X, pady=20, padx=20)
+
+        tk.Label(select_frame, text="Выберите дату: ", font=FONT_NORMAL, 
+                 bg=COLORS['bg']).pack(side=tk.LEFT, padx=5)
+        
+        # Виджет выбора даты
+        self.date_var = tk.StringVar()
+        today = datetime.date.today()
+        self.date_var.set(today.strftime(weather_core.DISPLAY_DATE_FORMAT))
+
+        self.date_entry = tk.Entry(select_frame, textvariable=self.date_var, 
+                                   font=FONT_SMALL, width=15)
+        self.date_entry.pack(side=tk.LEFT, padx=5)
+
+        tk.Label(select_frame, text="(формат: ДД.ММ.ГГГГ)", font=FONT_VERY_SMALL,
+                 bg=COLORS['bg'], fg='gray').pack(side=tk.LEFT, padx=5)
+        
+        # Кнопка получения погоды
+        get_weather_btn = tk.Button(select_frame, text="Получить погоду",
+                                    #command=get_weather_for_selected_date,
+                                    bg=COLORS['success_bg'], fg='white', font=FONT_BUTTON,
+                                    cursor='hand2', relief=tk.FLAT, padx=15, pady=5)
+        get_weather_btn.pack(side=tk.LEFT, padx=20)
+        get_weather_btn.bind('<Enter>', lambda e: get_weather_btn.configure(bg='#229954'))
+        get_weather_btn.bind('<Leave>', lambda e: get_weather_btn.configure(bg=COLORS['success_bg']))
+
+        #############################################################################
+
+
+
+    def refresh_today_weather(self):
+        """ Обновление погоды на сегодня """
+        if not self.current_city:
+            return
+        
+        self.status_bar.config(text="Загрузка погоды...")
+        self.root.update()
+
+
+
+
+
+
+
+
+
+
+
         
 
 
