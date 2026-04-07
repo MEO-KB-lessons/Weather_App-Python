@@ -6,100 +6,118 @@ import datetime
 from configparser import ConfigParser
 from typing import Optional, Dict, List, Tuple
 
-# --- Константы (API URL) ---
+# =============================================================================
+# 1. КОНСТАНТЫ И НАСТРОЙКИ
+# =============================================================================
+
+# --- API URL ---
 GEOCODING_URL = "https://geocoding-api.open-meteo.com/v1/search"
-WEATHER_URL = "https://api.open-meteo.com/v1/forecast"
-TIME_API_URL = "https://www.timeapi.io/api/Time/current/zone"
+WEATHER_URL_OPEN_METEO = "https://api.open-meteo.com/v1/forecast"
+# Visual Crossing API
+VISUALCROSSING_BASE_URL = "https://weather.visualcrossing.com/VisualCrossingWebServices/rest/services/timeline"
 
 # --- Имена файлов ---
 CONFIG_FILE = "config.cfg"
 JOURNAL_FILE = "weather_journal.json"
+API_KEY_FILE = "visualcrossing-api-key.txt"
 
 # --- Форматы дат ---
-DISPLAY_DATE_FORMAT = "%d.%m.%Y"  # формат для отображения пользователю
-STORAGE_DATE_FORMAT = "%Y-%m-%d"  # ISO формат для хранения в JSON (API использует этот формат)
+DISPLAY_DATE_FORMAT = "%d.%m.%Y"
+STORAGE_DATE_FORMAT = "%Y-%m-%d"
+
+# --- Функция для загрузки API ключа Visual Crossing ---
+def _load_visualcrossing_api_key() -> Optional[str]:
+    """Загружает API ключ Visual Crossing из файла."""
+    if not os.path.exists(API_KEY_FILE):
+        print(f"⚠️ Файл с API ключом не найден: {API_KEY_FILE}")
+        print("   Пожалуйста, создайте файл и поместите в него ваш ключ Visual Crossing.")
+        return None
+    try:
+        with open(API_KEY_FILE, 'r', encoding='utf-8') as f:
+            key = f.read().strip()
+            if key:
+                print(f"✅ API ключ Visual Crossing загружен из {API_KEY_FILE}")
+                return key
+            else:
+                print(f"⚠️ Файл {API_KEY_FILE} пуст.")
+                return None
+    except Exception as e:
+        print(f"⚠️ Ошибка при чтении файла с API ключом: {e}")
+        return None
+
+VISUALCROSSING_API_KEY = _load_visualcrossing_api_key()
+
+# =============================================================================
+# 2. ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
+# =============================================================================
 
 def format_date_for_display(date_obj: datetime.date) -> str:
-    """Преобразует объект date в строку для отображения (dd.MM.yyyy)."""
     return date_obj.strftime(DISPLAY_DATE_FORMAT)
 
 def format_date_for_storage(date_obj: datetime.date) -> str:
-    """Преобразует объект date в строку для хранения в JSON (yyyy-MM-dd)."""
     return date_obj.strftime(STORAGE_DATE_FORMAT)
 
 def parse_display_date(date_str: str) -> Optional[datetime.date]:
-    """Парсит строку даты в формате dd.MM.yyyy и возвращает объект date."""
     try:
         return datetime.datetime.strptime(date_str, DISPLAY_DATE_FORMAT).date()
     except ValueError:
         return None
 
 def storage_to_display(storage_date_str: str) -> str:
-    """Преобразует дату из формата хранения в формат отображения."""
     try:
         date_obj = datetime.datetime.strptime(storage_date_str, STORAGE_DATE_FORMAT).date()
         return format_date_for_display(date_obj)
     except ValueError:
-        return storage_date_str  # если не получается преобразовать, возвращаем как есть
+        return storage_date_str
 
 def kmh_to_ms(kmh: Optional[float]) -> Optional[float]:
-    """Переводит скорость ветра из км/ч в м/с."""
     if kmh is None:
         return None
-    # 1 км/ч = 0.27778 м/с, округляем до 1 знака после запятой
     return round(kmh * 0.27778, 1)
 
+def ms_to_kmh(ms: Optional[float]) -> Optional[float]:
+    if ms is None:
+        return None
+    return round(ms * 3.6, 1)
+
 # =============================================================================
-# КЛАССЫ ДЛЯ РАБОТЫ С ДАННЫМИ
+# 3. КЛАССЫ ДЛЯ РАБОТЫ С ДАННЫМИ
 # =============================================================================
 
 class ConfigManager:
-    """Управление конфигурацией города в .cfg файле."""
-    
     @staticmethod
     def load_city() -> Optional[str]:
-        """Загружает название города из config.cfg."""
         if not os.path.exists(CONFIG_FILE):
             return None
-        
         config = ConfigParser()
         config.read(CONFIG_FILE, encoding='utf-8')
-        
         if 'Settings' in config and 'city' in config['Settings']:
             return config['Settings']['city']
         return None
 
     @staticmethod
     def load_timezone() -> Optional[str]:
-        """Загружает временную зону из config.cfg."""
         if not os.path.exists(CONFIG_FILE):
             return None
-        
         config = ConfigParser()
         config.read(CONFIG_FILE, encoding='utf-8')
-        
         if 'Settings' in config and 'timezone' in config['Settings']:
             return config['Settings']['timezone']
         return None
 
     @staticmethod
     def save_city(city_name: str, timezone: str = None):
-        """Сохраняет название города и временную зону в config.cfg."""
         config = ConfigParser()
         config['Settings'] = {'city': city_name}
         if timezone:
             config['Settings']['timezone'] = timezone
-        
         with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
             config.write(f)
         print(f"✅ Город '{city_name}' сохранен в настройках.")
 
 class JournalManager:
-    """Управление JSON-файлом дневника погоды."""
-    
     @staticmethod
     def load_journal() -> Dict:
-        """Загружает дневник из JSON-файла. Если файла нет, возвращает пустой словарь."""
         if not os.path.exists(JOURNAL_FILE):
             return {}
         try:
@@ -111,16 +129,12 @@ class JournalManager:
 
     @staticmethod
     def save_journal(journal: Dict):
-        """Сохраняет дневник в JSON-файл."""
         with open(JOURNAL_FILE, 'w', encoding='utf-8') as f:
             json.dump(journal, f, ensure_ascii=False, indent=2)
         print(f"💾 Дневник сохранен в файл '{JOURNAL_FILE}'.")
 
     @staticmethod
     def get_weather_for_date(journal: Dict, city: str, storage_date_str: str) -> Optional[Dict]:
-        """
-        Получает запись о погоде из дневника по городу и дате (дата в формате хранения).
-        """
         city_key = city.lower()
         if city_key in journal and storage_date_str in journal[city_key]:
             return journal[city_key][storage_date_str]
@@ -128,117 +142,211 @@ class JournalManager:
 
     @staticmethod
     def add_weather_record(journal: Dict, city: str, storage_date_str: str, weather_data: Dict):
-        """Добавляет или обновляет запись о погоде в дневнике (дата в формате хранения)."""
         city_key = city.lower()
         if city_key not in journal:
             journal[city_key] = {}
         journal[city_key][storage_date_str] = weather_data
 
 # =============================================================================
-# ФУНКЦИИ ДЛЯ РАБОТЫ С API
+# 4. ФУНКЦИИ ДЛЯ РАБОТЫ С API
 # =============================================================================
 
 def get_coordinates_and_timezone(city_name: str) -> Optional[Tuple[float, float, str]]:
-    """
-    Получает координаты и часовой пояс города через Open-Meteo Geocoding API.
-    Возвращает (широта, долгота, часовой_пояс) или None, если город не найден.
-    """
     print(f"🔍 Поиск координат и часового пояса для города: {city_name}...")
     params = {'name': city_name, 'count': 1, 'language': 'ru', 'format': 'json'}
-    
     try:
         response = requests.get(GEOCODING_URL, params=params, timeout=10)
         response.raise_for_status()
         data = response.json()
-
         if data.get('results'):
             first_result = data['results'][0]
             lat = first_result['latitude']
             lon = first_result['longitude']
-            timezone = first_result.get('timezone')  # Часовой пояс из геокодера
-            country = first_result.get('country', '')
-            name = first_result.get('name', '')
-            
+            timezone = first_result.get('timezone')
             print(f"✅ Найдены координаты: {lat:.4f}, {lon:.4f}")
             if timezone:
                 print(f"✅ Определен часовой пояс: {timezone}")
-            else:
-                print(f"⚠️ Часовой пояс не найден в ответе геокодера для города {name}, {country}")
-            
             return lat, lon, timezone
         else:
             print(f"❌ Город '{city_name}' не найден.")
             return None
-    except requests.exceptions.RequestException as e:
+    except Exception as e:
         print(f"❌ Ошибка подключения к геокодеру: {e}")
-        return None
-    except (KeyError, IndexError, ValueError) as e:
-        print(f"❌ Ошибка обработки ответа геокодера: {e}")
         return None
 
 def get_coordinates(city_name: str) -> Optional[Tuple[float, float]]:
-    """
-    Получает координаты (широта, долгота) города через Open-Meteo Geocoding API.
-    Возвращает None, если город не найден.
-    (Сохраняется для обратной совместимости)
-    """
     result = get_coordinates_and_timezone(city_name)
     if result:
         return result[0], result[1]
     return None
 
 def get_timezone_for_city(lat: float, lon: float) -> Optional[str]:
-    """
-    Получает временную зону для координат.
-    Сначала пробует получить через Open-Meteo Forecast API,
-    затем через TimeAPI, в крайнем случае возвращает None.
-    """
-    # Метод 1: Пробуем получить через Open-Meteo Forecast API
     try:
         print(f"🕐 Определяем временную зону для координат {lat:.4f}, {lon:.4f}...")
-        params = {
-            'latitude': lat,
-            'longitude': lon,
-            'timezone': 'auto'
-        }
-        response = requests.get(WEATHER_URL, params=params, timeout=10)
+        params = {'latitude': lat, 'longitude': lon, 'timezone': 'auto'}
+        response = requests.get(WEATHER_URL_OPEN_METEO, params=params, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        timezone = data.get('timezone')
+        if timezone:
+            print(f"✅ Определена временная зона: {timezone}")
+            return timezone
+        else:
+            print("⚠️ Не удалось определить временную зону")
+            return None
+    except Exception as e:
+        print(f"⚠️ Не удалось определить временную зону: {e}")
+        return None
+
+def get_weather_from_visualcrossing(lat: float, lon: float, target_date: datetime.date, timezone: str = "Europe/Moscow") -> Optional[Dict]:
+    """Получает погоду через Visual Crossing API."""
+    if not VISUALCROSSING_API_KEY:
+        print("⚠️ Visual Crossing API ключ не настроен. Пропускаем.")
+        return None
+
+    date_str = target_date.strftime("%Y-%m-%d")
+    display_date_str = format_date_for_display(target_date)
+    print(f"☁️ Запрос погоды через Visual Crossing на {display_date_str}...")
+
+    location = f"{lat},{lon}"
+    url = f"{VISUALCROSSING_BASE_URL}/{location}/{date_str}"
+    params = {
+        'unitGroup': 'metric',
+        'key': VISUALCROSSING_API_KEY,
+        'include': 'days',
+        'contentType': 'json'
+    }
+
+    try:
+        response = requests.get(url, params=params, timeout=15)
+        
+        if response.status_code == 401:
+            print("❌ Ошибка авторизации Visual Crossing. Проверьте API ключ.")
+            return None
+        if response.status_code == 429:
+            print("❌ Превышен лимит запросов к Visual Crossing.")
+            return None
+            
         response.raise_for_status()
         data = response.json()
         
-        timezone = data.get('timezone')
-        if timezone:
-            print(f"✅ Определена временная зона (через Weather API): {timezone}")
-            return timezone
-        else:
-            print("⚠️ Weather API не вернул временную зону")
-    except Exception as e:
-        print(f"⚠️ Не удалось определить временную зону через Weather API: {e}")
+        if 'days' not in data or not data['days']:
+            print("⚠️ Нет данных от Visual Crossing за указанную дату")
+            return None
+        
+        day_data = data['days'][0]
+        
+        wind_speed_ms = day_data.get('windspeed')
+        wind_speed_kmh = ms_to_kmh(wind_speed_ms)
+        pressure_mb = day_data.get('pressure')
+        pressure_mmhg = round(pressure_mb * 0.75006, 1) if pressure_mb else None
+        
+        # Преобразуем icon в числовой код для совместимости с display_weather
+        icon_code = day_data.get('icon', '')
+        weathercode_map = {
+            'clear-day': 0, 'clear-night': 0,
+            'partly-cloudy-day': 2, 'partly-cloudy-night': 2,
+            'cloudy': 3,
+            'rain': 61, 'showers-day': 61, 'showers-night': 61,
+            'snow': 71, 'snow-showers-day': 71, 'snow-showers-night': 71,
+            'thunder-rain': 95, 'thunder-showers-day': 95, 'thunder-showers-night': 95,
+            'fog': 45, 'wind': 2
+        }
+        weathercode = weathercode_map.get(icon_code, 0)
+        
+        weather_data = {
+            'date_storage': date_str,
+            'date_display': display_date_str,
+            'temperature_max': day_data.get('tempmax'),
+            'temperature_min': day_data.get('tempmin'),
+            'precipitation_sum': day_data.get('precip'),
+            'wind_speed_kmh': wind_speed_kmh,
+            'wind_speed_ms': wind_speed_ms,
+            'pressure_hpa': pressure_mb,
+            'pressure_mmhg': pressure_mmhg,
+            'humidity': day_data.get('humidity'),
+            'weathercode': weathercode,
+            'source': 'Visual Crossing API',
+            'timezone': data.get('timezone', timezone)
+        }
+        
+        weather_data['units'] = {
+            'temperature': '°C',
+            'precipitation': 'mm',
+            'wind_speed': 'м/с',
+            'pressure': 'мм рт. ст.',
+            'humidity': '%'
+        }
+        
+        print(f"✅ Данные о погоде получены от Visual Crossing")
+        return weather_data
+        
+    except requests.exceptions.RequestException as e:
+        print(f"❌ Ошибка подключения к Visual Crossing: {e}")
+        return None
+    except (KeyError, ValueError) as e:
+        print(f"❌ Ошибка обработки данных Visual Crossing: {e}")
+        return None
+
+def get_weather_from_openmeteo(lat: float, lon: float, target_date: datetime.date, timezone: str = "Europe/Moscow") -> Optional[Dict]:
+    """Получает погоду через Open-Meteo API (резервный)."""
+    date_str = format_date_for_storage(target_date)
+    display_date_str = format_date_for_display(target_date)
+    print(f"☁️ Запрос погоды через Open-Meteo (резервный) на {display_date_str}...")
     
-    # Метод 2: Пробуем через TimeAPI (старый метод, может не работать)
+    params = {
+        'latitude': lat, 'longitude': lon,
+        'start_date': date_str, 'end_date': date_str,
+        'daily': ['temperature_2m_max', 'temperature_2m_min', 'precipitation_sum', 
+                  'wind_speed_10m_max', 'pressure_msl_mean', 'relative_humidity_2m_mean', 'weathercode'],
+        'timezone': timezone
+    }
+    
     try:
-        print(f"🕐 Пробуем определить время через TimeAPI...")
-        params = {'timeZone': f'auto&latitude={lat}&longitude={lon}'}
-        response = requests.get(TIME_API_URL, params=params, timeout=5)
-        if response.status_code == 200:
-            data = response.json()
-            timezone = data.get('timeZone')
-            if timezone:
-                print(f"✅ Определена временная зона (через TimeAPI): {timezone}")
-                return timezone
-        else:
-            print(f"⚠️ TimeAPI вернул статус {response.status_code}")
+        response = requests.get(WEATHER_URL_OPEN_METEO, params=params, timeout=15)
+        response.raise_for_status()
+        data = response.json()
+        if 'daily' not in data:
+            return None
+
+        daily = data['daily']
+        wind_speed_kmh = daily.get('wind_speed_10m_max', [None])[0]
+        wind_speed_ms = kmh_to_ms(wind_speed_kmh)
+        pressure_hpa = daily.get('pressure_msl_mean', [None])[0]
+        pressure_mmhg = round(pressure_hpa * 0.75006, 1) if pressure_hpa else None
+        
+        weather_data = {
+            'date_storage': date_str, 'date_display': display_date_str,
+            'temperature_max': daily.get('temperature_2m_max', [None])[0],
+            'temperature_min': daily.get('temperature_2m_min', [None])[0],
+            'precipitation_sum': daily.get('precipitation_sum', [None])[0],
+            'wind_speed_kmh': wind_speed_kmh, 'wind_speed_ms': wind_speed_ms,
+            'pressure_hpa': pressure_hpa, 'pressure_mmhg': pressure_mmhg,
+            'humidity': daily.get('relative_humidity_2m_mean', [None])[0],
+            'weathercode': daily.get('weathercode', [None])[0],
+            'source': 'Open-Meteo API (резервный)', 'timezone': timezone
+        }
+        if 'daily_units' in data:
+            weather_data['units'] = {
+                'temperature': data['daily_units'].get('temperature_2m_max', '°C'),
+                'precipitation': data['daily_units'].get('precipitation_sum', 'mm'),
+                'wind_speed': 'м/с', 'pressure': 'мм рт. ст.', 'humidity': '%'
+            }
+        print(f"✅ Данные о погоде получены от Open-Meteo (резервный)")
+        return weather_data
     except Exception as e:
-        print(f"⚠️ TimeAPI не доступен: {e}")
-    
-    print(f"⚠️ Не удалось определить временную зону")
-    return None
+        print(f"❌ Ошибка получения погоды из Open-Meteo: {e}")
+        return None
+
+def get_weather_for_date(lat: float, lon: float, target_date: datetime.date, timezone: str = "Europe/Moscow") -> Optional[Dict]:
+    """Получает погоду за конкретную дату. Сначала Visual Crossing, потом Open-Meteo."""
+    weather_data = get_weather_from_visualcrossing(lat, lon, target_date, timezone)
+    if not weather_data:
+        print("🔄 Переключение на резервный API Open-Meteo...")
+        weather_data = get_weather_from_openmeteo(lat, lon, target_date, timezone)
+    return weather_data
 
 def get_current_time_in_zone(timezone: str = "Europe/Moscow") -> Optional[datetime.date]:
-    """
-    Получает текущую дату для заданной временной зоны.
-    Использует системную дату с pytz для корректного определения времени в часовом поясе.
-    """
-    # Используем pytz для локального определения времени в часовом поясе
     try:
         import pytz
         tz = pytz.timezone(timezone)
@@ -253,92 +361,8 @@ def get_current_time_in_zone(timezone: str = "Europe/Moscow") -> Optional[dateti
         print(f"⚠️ Ошибка определения времени: {e}. Используем системную дату.")
         return datetime.date.today()
 
-def get_weather_for_date(lat: float, lon: float, target_date: datetime.date, timezone: str = "Europe/Moscow") -> Optional[Dict]:
-    """
-    Получает погоду за конкретную дату из Open-Meteo Forecast API.
-    Возвращает словарь с данными о погоде или None при ошибке.
-    """
-    date_str = format_date_for_storage(target_date)  # API требует ISO формат
-    display_date_str = format_date_for_display(target_date)
-    print(f"☁️ Запрос погоды на {display_date_str}...")
-    
-    params = {
-        'latitude': lat,
-        'longitude': lon,
-        'start_date': date_str,
-        'end_date': date_str,
-        'daily': [
-            'temperature_2m_max', 
-            'temperature_2m_min', 
-            'precipitation_sum', 
-            'wind_speed_10m_max',
-            'pressure_msl_mean',  # среднее давление на уровне моря
-            'relative_humidity_2m_mean',  # средняя относительная влажность
-            'weathercode'
-        ],
-        'timezone': timezone  # используем определенную временную зону
-    }
-    
-    try:
-        response = requests.get(WEATHER_URL, params=params, timeout=15)
-        response.raise_for_status()
-        data = response.json()
-
-        if 'daily' not in data:
-            print("⚠️ Не удалось получить данные о погоде (нет поля 'daily').")
-            return None
-
-        daily = data['daily']
-        
-        # Получаем сырые значения
-        wind_speed_kmh = daily.get('wind_speed_10m_max', [None])[0]
-        wind_speed_ms = kmh_to_ms(wind_speed_kmh)
-        
-        # Получаем давление (переводим из гПа в мм рт. ст. если нужно)
-        # Open-Meteo возвращает давление в гПа (гектопаскалях), что эквивалентно мбар
-        # 1 гПа = 0.75006 мм рт. ст.
-        pressure_hpa = daily.get('pressure_msl_mean', [None])[0]
-        pressure_mmhg = round(pressure_hpa * 0.75006, 1) if pressure_hpa else None
-        
-        # Индекс 0, так как запрашивали только один день
-        weather_data = {
-            'date_storage': date_str,  # храним ISO формат для совместимости с API
-            'date_display': display_date_str,  # и для удобства отображения
-            'temperature_max': daily.get('temperature_2m_max', [None])[0],
-            'temperature_min': daily.get('temperature_2m_min', [None])[0],
-            'precipitation_sum': daily.get('precipitation_sum', [None])[0],
-            'wind_speed_kmh': wind_speed_kmh,  # сохраняем исходное значение в км/ч
-            'wind_speed_ms': wind_speed_ms,  # и переведённое в м/с
-            'pressure_hpa': pressure_hpa,  # давление в гПа
-            'pressure_mmhg': pressure_mmhg,  # давление в мм рт. ст.
-            'humidity': daily.get('relative_humidity_2m_mean', [None])[0],  # влажность в %
-            'weathercode': daily.get('weathercode', [None])[0],
-            'source': 'Open-Meteo API',
-            'timezone': timezone  # сохраняем временную зону
-        }
-        
-        # Добавляем единицы измерения, если они есть
-        if 'daily_units' in data:
-            weather_data['units'] = {
-                'temperature': data['daily_units'].get('temperature_2m_max', '°C'),
-                'precipitation': data['daily_units'].get('precipitation_sum', 'mm'),
-                'wind_speed': 'м/с',  # мы переводим в м/с
-                'pressure': 'мм рт. ст.',  # мы переводим в мм рт. ст.
-                'humidity': '%'
-            }
-        
-        print(f"✅ Данные о погоде получены.")
-        return weather_data
-        
-    except requests.exceptions.RequestException as e:
-        print(f"❌ Ошибка подключения к сервису погоды: {e}")
-        return None
-    except (KeyError, ValueError) as e:
-        print(f"❌ Ошибка обработки данных погоды: {e}")
-        return None
-
 # =============================================================================
-# ОСНОВНАЯ ЛОГИКА ПРИЛОЖЕНИЯ
+# 5. ФУНКЦИЯ ВЫВОДА ПОГОДЫ (ПОЛНАЯ ВЕРСИЯ)
 # =============================================================================
 
 def display_weather(weather_data: Dict, city: str):
@@ -346,14 +370,17 @@ def display_weather(weather_data: Dict, city: str):
     print("\n" + "="*50)
     print(f"🌍 Погода в городе: {city}")
     
-    # Пытаемся отобразить дату в нужном формате
+    # Показываем источник данных
+    if 'source' in weather_data:
+        print(f"📡 Источник: {weather_data['source']}")
+    
+    # Дата
     if 'date_display' in weather_data:
         print(f"📅 Дата: {weather_data['date_display']}")
     elif 'date' in weather_data:
-        # Если есть только старая дата, пробуем преобразовать
         print(f"📅 Дата: {storage_to_display(weather_data['date'])}")
     
-    # Показываем временную зону, если она есть
+    # Временная зона
     if 'timezone' in weather_data:
         print(f"🕐 Временная зона: {weather_data['timezone']}")
     
@@ -383,7 +410,7 @@ def display_weather(weather_data: Dict, city: str):
     if humidity is not None:
         print(f"💧 Влажность: {humidity}{hum_unit}")
     
-    # Давление (в мм рт. ст.)
+    # Давление
     pressure = weather_data.get('pressure_mmhg')
     if pressure is not None:
         print(f"📊 Давление: {pressure} {press_unit}")
@@ -397,7 +424,7 @@ def display_weather(weather_data: Dict, city: str):
     if precip is not None:
         print(f"☔ Осадки: {precip} {p_unit}")
     
-    # Ветер (в м/с)
+    # Ветер
     wind_ms = weather_data.get('wind_speed_ms')
     if wind_ms is not None:
         print(f"💨 Ветер: {wind_ms} {w_unit}")
@@ -440,7 +467,8 @@ def display_weather(weather_data: Dict, city: str):
             99: 'Гроза с сильным градом'
         }
         condition = conditions.get(wcode, f'Код {wcode}')
-        # Добавляем эмодзи в зависимости от кода погоды
+        
+        # Эмодзи
         if wcode == 0:
             emoji = "☀️"
         elif wcode in [1, 2]:
@@ -462,18 +490,19 @@ def display_weather(weather_data: Dict, city: str):
     
     print("="*50)
 
+# =============================================================================
+# 6. ОСНОВНАЯ ЛОГИКА ПРИЛОЖЕНИЯ
+# =============================================================================
+
 def change_city_interactive() -> Tuple[Optional[str], Optional[str]]:
-    """Интерактивная смена города с проверкой через геокодер."""
     while True:
         new_city = input("Введите название нового города: ").strip()
         if not new_city:
             print("Название города не может быть пустым.")
             continue
-        
         result = get_coordinates_and_timezone(new_city)
         if result:
             lat, lon, timezone = result
-            # Если часовой пояс не получен из геокодера, пробуем другие методы
             if not timezone:
                 timezone = get_timezone_for_city(lat, lon)
             ConfigManager.save_city(new_city, timezone)
@@ -491,12 +520,16 @@ def change_city_interactive() -> Tuple[Optional[str], Optional[str]]:
                     exit()
 
 def main():
-    """Главная функция приложения."""
     print("="*60)
     print("         🌦️  ДНЕВНИК ПОГОДЫ  🌦️")
     print("="*60)
     
-    # --- 1. Загрузка или выбор города ---
+    if not VISUALCROSSING_API_KEY:
+        print("⚠️ Внимание! API ключ Visual Crossing не настроен.")
+        print("   Будет использоваться только резервный API Open-Meteo.")
+        print(f"   Для получения ключа зарегистрируйтесь на https://www.visualcrossing.com/")
+        print(f"   и сохраните ключ в файл '{API_KEY_FILE}'\n")
+    
     current_city = ConfigManager.load_city()
     city_timezone = ConfigManager.load_timezone()
     
@@ -506,11 +539,9 @@ def main():
         if not current_city:
             print("Город не указан. Выход.")
             return
-        
         result = get_coordinates_and_timezone(current_city)
         if result:
             lat, lon, city_timezone = result
-            # Если часовой пояс не получен из геокодера, пробуем другие методы
             if not city_timezone:
                 city_timezone = get_timezone_for_city(lat, lon)
             ConfigManager.save_city(current_city, city_timezone)
@@ -522,7 +553,6 @@ def main():
         if city_timezone:
             print(f"🕐 Временная зона: {city_timezone}")
         else:
-            # Если временная зона не сохранена, пробуем определить
             print("🕐 Временная зона не сохранена. Пробуем определить...")
             result = get_coordinates_and_timezone(current_city)
             if result:
@@ -532,15 +562,12 @@ def main():
                 if city_timezone:
                     ConfigManager.save_city(current_city, city_timezone)
     
-    # Если всё ещё нет временной зоны, используем значение по умолчанию
     if not city_timezone:
         city_timezone = "Europe/Moscow"
         print(f"⚠️ Используется временная зона по умолчанию: {city_timezone}")
     
-    # --- 2. Загрузка дневника ---
     journal = JournalManager.load_journal()
     
-    # --- 3. Основной цикл меню ---
     while True:
         print(f"\n🏙️  Город: {current_city}")
         if city_timezone:
@@ -555,12 +582,10 @@ def main():
         choice = input("Выберите действие (1-5): ").strip()
         
         if choice == '1':
-            # --- Погода на сегодня ---
             print(f"\n🔍 Определяем текущую дату для временной зоны {city_timezone}...")
             target_date = get_current_time_in_zone(city_timezone)
             storage_date_str = format_date_for_storage(target_date)
             display_date_str = format_date_for_display(target_date)
-            
             print(f"📅 Текущая дата в городе: {display_date_str}")
             
             record = JournalManager.get_weather_for_date(journal, current_city, storage_date_str)
@@ -583,19 +608,15 @@ def main():
                     print("❌ Не удалось получить координаты города.")
         
         elif choice == '2':
-            # --- Погода на другую дату ---
             date_str = input("Введите дату в формате ДД.ММ.ГГГГ (например, 25.12.2024): ").strip()
             target_date = parse_display_date(date_str)
-            
             if not target_date:
                 print("❌ Неверный формат даты. Используйте ДД.ММ.ГГГГ")
                 continue
-            
             today = datetime.date.today()
             if target_date > today:
                 print("⚠️ Нельзя запросить погоду на будущее (доступен только прогноз, но дневник хранит прошлое).")
                 continue
-            
             storage_date_str = format_date_for_storage(target_date)
             display_date_str = format_date_for_display(target_date)
             
@@ -623,6 +644,11 @@ def main():
             city_key = current_city.lower()
             if city_key in journal and journal[city_key]:
                 print(f"\n📜 История погоды для {current_city}:")
+                print("-" * 80)
+                # Заголовки
+                print(f"{'Дата':<12} {'Температура':^20} {'Влажность':^12} {'Давление':^12} {'Ветер':^12} {'Источник':^15}")
+                print("-" * 80)
+                
                 # Сортируем даты (в формате хранения YYYY-MM-DD, что удобно для сортировки)
                 sorted_dates = sorted(journal[city_key].keys(), reverse=True)
                 for storage_date_str in sorted_dates:
@@ -633,24 +659,32 @@ def main():
                     humidity = weather.get('humidity', '?')
                     pressure = weather.get('pressure_mmhg', weather.get('pressure_hpa', '?'))
                     wind = weather.get('wind_speed_ms', weather.get('wind_speed_kmh', '?'))
+                    source = weather.get('source', '?')
                     
-                    # Формируем строку с дополнительными данными
-                    extra = []
-                    if humidity != '?':
-                        extra.append(f"💧{humidity}%")
-                    if pressure != '?':
-                        extra.append(f"📊{pressure}")
+                    # Форматируем температуру
+                    temp_str = f"{t_min}..{t_max}°C"
+                    
+                    # Форматируем влажность
+                    humidity_str = f"💧{humidity}%" if humidity != '?' else "💧--"
+                    
+                    # Форматируем давление
+                    pressure_str = f"📊{pressure}" if pressure != '?' else "📊--"
+                    
+                    # Форматируем ветер
                     if wind != '?':
                         wind_unit = "м/с" if weather.get('wind_speed_ms') else "км/ч"
-                        extra.append(f"💨{wind}{wind_unit}")
+                        wind_str = f"💨{wind}{wind_unit}"
+                    else:
+                        wind_str = "💨--"
                     
-                    extra_str = " | ".join(extra) if extra else ""
-                    print(f"  {display_date}: {t_min}..{t_max}°C  {extra_str}")
+                    # Выводим отформатированную строку
+                    print(f"{display_date:<12} {temp_str:^20} {humidity_str:^12} {pressure_str:^12} {wind_str:^12} {source:^15}")
+                
+                print("-" * 80)
             else:
                 print(f"📭 В дневнике пока нет записей для города {current_city}.")
-        
+
         elif choice == '4':
-            # --- Смена города ---
             new_city, new_timezone = change_city_interactive()
             if new_city and new_city != current_city:
                 current_city = new_city
