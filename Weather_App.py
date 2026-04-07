@@ -1,3 +1,4 @@
+# Weather_App.py
 import requests
 import json
 import os
@@ -137,12 +138,12 @@ class JournalManager:
 # ФУНКЦИИ ДЛЯ РАБОТЫ С API
 # =============================================================================
 
-def get_coordinates(city_name: str) -> Optional[Tuple[float, float]]:
+def get_coordinates_and_timezone(city_name: str) -> Optional[Tuple[float, float, str]]:
     """
-    Получает координаты (широта, долгота) города через Open-Meteo Geocoding API.
-    Возвращает None, если город не найден.
+    Получает координаты и часовой пояс города через Open-Meteo Geocoding API.
+    Возвращает (широта, долгота, часовой_пояс) или None, если город не найден.
     """
-    print(f"🔍 Поиск координат для города: {city_name}...")
+    print(f"🔍 Поиск координат и часового пояса для города: {city_name}...")
     params = {'name': city_name, 'count': 1, 'language': 'ru', 'format': 'json'}
     
     try:
@@ -154,8 +155,17 @@ def get_coordinates(city_name: str) -> Optional[Tuple[float, float]]:
             first_result = data['results'][0]
             lat = first_result['latitude']
             lon = first_result['longitude']
+            timezone = first_result.get('timezone')  # Часовой пояс из геокодера
+            country = first_result.get('country', '')
+            name = first_result.get('name', '')
+            
             print(f"✅ Найдены координаты: {lat:.4f}, {lon:.4f}")
-            return lat, lon
+            if timezone:
+                print(f"✅ Определен часовой пояс: {timezone}")
+            else:
+                print(f"⚠️ Часовой пояс не найден в ответе геокодера для города {name}, {country}")
+            
+            return lat, lon, timezone
         else:
             print(f"❌ Город '{city_name}' не найден.")
             return None
@@ -166,10 +176,24 @@ def get_coordinates(city_name: str) -> Optional[Tuple[float, float]]:
         print(f"❌ Ошибка обработки ответа геокодера: {e}")
         return None
 
+def get_coordinates(city_name: str) -> Optional[Tuple[float, float]]:
+    """
+    Получает координаты (широта, долгота) города через Open-Meteo Geocoding API.
+    Возвращает None, если город не найден.
+    (Сохраняется для обратной совместимости)
+    """
+    result = get_coordinates_and_timezone(city_name)
+    if result:
+        return result[0], result[1]
+    return None
+
 def get_timezone_for_city(lat: float, lon: float) -> Optional[str]:
     """
-    Получает временную зону для координат через Open-Meteo API.
+    Получает временную зону для координат.
+    Сначала пробует получить через Open-Meteo Forecast API,
+    затем через TimeAPI, в крайнем случае возвращает None.
     """
+    # Метод 1: Пробуем получить через Open-Meteo Forecast API
     try:
         print(f"🕐 Определяем временную зону для координат {lat:.4f}, {lon:.4f}...")
         params = {
@@ -181,17 +205,53 @@ def get_timezone_for_city(lat: float, lon: float) -> Optional[str]:
         response.raise_for_status()
         data = response.json()
         
-        # Open-Meteo возвращает временную зону в ответе
         timezone = data.get('timezone')
         if timezone:
-            print(f"✅ Определена временная зона: {timezone}")
+            print(f"✅ Определена временная зона (через Weather API): {timezone}")
             return timezone
         else:
-            print("⚠️ Не удалось определить временную зону из ответа API")
-            return None
+            print("⚠️ Weather API не вернул временную зону")
     except Exception as e:
-        print(f"⚠️ Не удалось определить временную зону: {e}")
-        return None
+        print(f"⚠️ Не удалось определить временную зону через Weather API: {e}")
+    
+    # Метод 2: Пробуем через TimeAPI (старый метод, может не работать)
+    try:
+        print(f"🕐 Пробуем определить время через TimeAPI...")
+        params = {'timeZone': f'auto&latitude={lat}&longitude={lon}'}
+        response = requests.get(TIME_API_URL, params=params, timeout=5)
+        if response.status_code == 200:
+            data = response.json()
+            timezone = data.get('timeZone')
+            if timezone:
+                print(f"✅ Определена временная зона (через TimeAPI): {timezone}")
+                return timezone
+        else:
+            print(f"⚠️ TimeAPI вернул статус {response.status_code}")
+    except Exception as e:
+        print(f"⚠️ TimeAPI не доступен: {e}")
+    
+    print(f"⚠️ Не удалось определить временную зону")
+    return None
+
+def get_current_time_in_zone(timezone: str = "Europe/Moscow") -> Optional[datetime.date]:
+    """
+    Получает текущую дату для заданной временной зоны.
+    Использует системную дату с pytz для корректного определения времени в часовом поясе.
+    """
+    # Используем pytz для локального определения времени в часовом поясе
+    try:
+        import pytz
+        tz = pytz.timezone(timezone)
+        now = datetime.datetime.now(tz)
+        current_date = now.date()
+        print(f"✅ Текущая дата в зоне {timezone} (pytz): {format_date_for_display(current_date)}")
+        return current_date
+    except ImportError:
+        print(f"⚠️ Библиотека pytz не установлена. Используем системную дату UTC.")
+        return datetime.date.today()
+    except Exception as e:
+        print(f"⚠️ Ошибка определения времени: {e}. Используем системную дату.")
+        return datetime.date.today()
 
 def get_weather_for_date(lat: float, lon: float, target_date: datetime.date, timezone: str = "Europe/Moscow") -> Optional[Dict]:
     """
@@ -276,35 +336,6 @@ def get_weather_for_date(lat: float, lon: float, target_date: datetime.date, tim
     except (KeyError, ValueError) as e:
         print(f"❌ Ошибка обработки данных погоды: {e}")
         return None
-
-def get_current_time_in_zone(timezone: str = "Europe/Moscow") -> Optional[datetime.date]:
-    """
-    Получает текущую дату для заданной временной зоны через TimeAPI.
-    Используется для определения "сегодня" в конкретном городе.
-    При ошибке возвращает системную дату UTC.
-    """
-    params = {'timeZone': timezone}
-    try:
-        print(f"🕐 Запрашиваем текущее время для зоны {timezone}...")
-        response = requests.get(TIME_API_URL, params=params, timeout=10)
-        response.raise_for_status()
-        data = response.json()
-        
-        year = data.get('year')
-        month = data.get('month')
-        day = data.get('day')
-        
-        if year and month and day:
-            current_date = datetime.date(year, month, day)
-            print(f"✅ Текущая дата в зоне {timezone}: {format_date_for_display(current_date)}")
-            return current_date
-        else:
-            print(f"⚠️ Не удалось получить дату из TimeAPI для зоны {timezone}, используется UTC.")
-            return datetime.date.today()
-            
-    except Exception as e:
-        print(f"⚠️ Ошибка получения времени через API ({e}). Используется системная дата UTC.")
-        return datetime.date.today()
 
 # =============================================================================
 # ОСНОВНАЯ ЛОГИКА ПРИЛОЖЕНИЯ
@@ -439,10 +470,12 @@ def change_city_interactive() -> Tuple[Optional[str], Optional[str]]:
             print("Название города не может быть пустым.")
             continue
         
-        coords = get_coordinates(new_city)
-        if coords:
-            # Получаем временную зону для нового города
-            timezone = get_timezone_for_city(coords[0], coords[1])
+        result = get_coordinates_and_timezone(new_city)
+        if result:
+            lat, lon, timezone = result
+            # Если часовой пояс не получен из геокодера, пробуем другие методы
+            if not timezone:
+                timezone = get_timezone_for_city(lat, lon)
             ConfigManager.save_city(new_city, timezone)
             return new_city, timezone
         else:
@@ -474,10 +507,12 @@ def main():
             print("Город не указан. Выход.")
             return
         
-        coords = get_coordinates(current_city)
-        if coords:
-            # Получаем временную зону для нового города
-            city_timezone = get_timezone_for_city(coords[0], coords[1])
+        result = get_coordinates_and_timezone(current_city)
+        if result:
+            lat, lon, city_timezone = result
+            # Если часовой пояс не получен из геокодера, пробуем другие методы
+            if not city_timezone:
+                city_timezone = get_timezone_for_city(lat, lon)
             ConfigManager.save_city(current_city, city_timezone)
         else:
             print("Не удалось найти указанный город. Попробуйте позже.")
@@ -489,9 +524,11 @@ def main():
         else:
             # Если временная зона не сохранена, пробуем определить
             print("🕐 Временная зона не сохранена. Пробуем определить...")
-            coords = get_coordinates(current_city)
-            if coords:
-                city_timezone = get_timezone_for_city(coords[0], coords[1])
+            result = get_coordinates_and_timezone(current_city)
+            if result:
+                lat, lon, city_timezone = result
+                if not city_timezone:
+                    city_timezone = get_timezone_for_city(lat, lon)
                 if city_timezone:
                     ConfigManager.save_city(current_city, city_timezone)
     
@@ -631,4 +668,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
