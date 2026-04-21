@@ -236,8 +236,8 @@ def get_weather_from_visualcrossing(lat: float, lon: float, target_date: datetim
         
         day_data = data['days'][0]
         
-        wind_speed_ms = day_data.get('windspeed')
-        wind_speed_kmh = ms_to_kmh(wind_speed_ms)
+        wind_speed_kmh = day_data.get('windspeed')
+        wind_speed_ms = kmh_to_ms(wind_speed_kmh)
         pressure_mb = day_data.get('pressure')
         pressure_mmhg = round(pressure_mb * 0.75006, 1) if pressure_mb else None
         
