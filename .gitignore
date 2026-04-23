@@ -1,2 +1,4 @@
 *.cfg
 *.json
+__pycache__
+visualcrossing-api-key.txt
